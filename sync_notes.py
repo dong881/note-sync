@@ -18,9 +18,9 @@ TARGET_ROOT = HOME_DIR / "ming-note"
 DEST_DIR = TARGET_ROOT / "notes/develop"
 DEST_IMG_DIR = DEST_DIR / "src"
 
-# Time & Frequency Settings (時間變數設定)
-FILE_SETTLE_DELAY = 30.0   # 檔案變更後等待秒數 (防止寫入未完成就讀取)
-CHECK_INTERVAL = 60.0      # 背景迴圈檢查頻率 (秒)
+# Time & Frequency Settings
+FILE_SETTLE_DELAY = 5.0   # 檔案變更後等待秒數
+CHECK_INTERVAL = 1.0      # 背景迴圈檢查頻率
 
 # GitHub Config
 GITHUB_REPO_BASE = "https://github.com/bmw-ece-ntust/openairinterface5g/blob"
@@ -89,10 +89,7 @@ class BrainHandler(FileSystemEventHandler):
     def __init__(self):
         self.pending_hashes = set()
         self.lock = threading.Lock()
-        
-        # 使用變數設定
         self.processing_delay = FILE_SETTLE_DELAY 
-        
         self.last_change_time = {}
         self.state_manager = SyncState()
         self.ignore_strings = self._load_ignore_list()
@@ -148,9 +145,7 @@ class BrainHandler(FileSystemEventHandler):
 
     def process_pending(self):
         while True:
-            # 使用變數設定
             time.sleep(CHECK_INTERVAL)
-            
             with self.lock:
                 now = time.time()
                 to_process = []
@@ -165,7 +160,7 @@ class BrainHandler(FileSystemEventHandler):
             for hash_id in to_process:
                 self.convert_hash_folder(hash_id, timestamp=now)
 
-    # --- Smart Summary Extraction Logic ---
+    # --- Smart Summary Extraction ---
     def _clean_text(self, text):
         text = re.sub(r'^>\s*', '', text, flags=re.MULTILINE)
         text = re.sub(r'\*\*(.*?)\*\*', r'\1', text)
@@ -201,48 +196,89 @@ class BrainHandler(FileSystemEventHandler):
         source_path = SOURCE_ROOT / hash_id
         if not source_path.exists(): return False
 
-        walkthrough_path = source_path / "walkthrough.md"
-        impl_path = source_path / "implementation_plan.md"
-        task_path = source_path / "task.md"
-
-        walkthrough_content = self._read_file(walkthrough_path) if walkthrough_path.exists() else ""
-        impl_content = self._read_file(impl_path) if impl_path.exists() else ""
-        task_content = self._read_file(task_path) if task_path.exists() else ""
+        # --- 1. Dynamic File Discovery & Grouping ---
+        # 目的：將 'walkthrough.md', 'walkthrough.md.resolved' 等視為同一組，並取最大的檔案
+        file_groups = {}
         
-        other_files = []
-        known_files = {"walkthrough.md", "implementation_plan.md", "task.md"}
-        for f in source_path.glob("*.md"):
-            if f.name not in known_files and "resolved" not in f.name:
-                other_files.append((f.stem.replace("_", " ").title(), self._read_file(f)))
-        
-        last_other_content = other_files[-1][1] if other_files else ""
+        for f in source_path.iterdir():
+            if not f.is_file(): continue
+            
+            # Regex 解析: 抓取 .md 前面的名稱作為 Key (base_name)
+            # 例如: architecture.md.resolved -> architecture
+            match = re.match(r'^(.+?)\.md', f.name)
+            if match:
+                base_name = match.group(1)
+                if base_name not in file_groups:
+                    file_groups[base_name] = []
+                file_groups[base_name].append(f)
 
-        # --- Metadata Extraction ---
+        # 針對每一組，選出檔案大小 (st_size) 最大的那個路徑
+        best_files_map = {}
+        for base_name, paths in file_groups.items():
+            # max key 使用檔案大小
+            best_file = max(paths, key=lambda p: p.stat().st_size)
+            best_files_map[base_name] = best_file
+
+        # --- 2. Read Contents ---
+        # 讀取所有選定檔案的內容存入 Dictionary
+        contents = {}
+        for base_name, path in best_files_map.items():
+            contents[base_name] = self._read_file(path)
+
+        # 取得關鍵檔案內容 (若無則為空字串)
+        walkthrough_content = contents.get("walkthrough", "")
+        impl_content = contents.get("implementation_plan", "")
+        task_content = contents.get("task", "")
+
+        # 準備 "其他檔案" 的列表 (排除已知的 key)
+        known_keys = {"walkthrough", "implementation_plan", "task"}
+        other_keys = sorted([k for k in contents.keys() if k not in known_keys])
+        
+        # 取得最後一個其他檔案的內容 (用於 Abstract fallback)
+        last_other_content = contents[other_keys[-1]] if other_keys else ""
+
+        # --- 3. Extract Metadata ---
+        # Overview: 優先 Walkthrough -> Impl -> Task
         overview_text = self._smart_extract([walkthrough_content, impl_content, task_content])
+        
+        # Abstract: 優先 Impl -> Task -> 其他最後一個，排除 Overview
         abstract_text = self._smart_extract(
             [impl_content, task_content, last_other_content], 
             exclude_text=overview_text
         )
 
+        # --- 4. Assemble Content Buffer ---
         content_buffer = []
+
+        # (A) 固定結構: Implementation Plan
         if impl_content:
             content_buffer.append("\n### Implementation Plan\n")
             content_buffer.append(impl_content)
+
+        # (B) 固定結構: Task List
         if task_content:
             content_buffer.append("\n### Task List\n")
             content_buffer.append(task_content)
-        for title, content in other_files:
-            content_buffer.append(f"\n### {title}\n")
-            content_buffer.append(content)
+
+        # (C) 動態結構: 所有其他檔案 (Architecture, Logs, etc.)
+        for key in other_keys:
+            # 將 key 轉為標題 (e.g., 'architecture' -> 'Architecture')
+            title_str = key.replace("_", " ").title()
+            content_buffer.append(f"\n### {title_str}\n")
+            content_buffer.append(contents[key])
+
+        # (D) 固定結構: Walkthrough (通常放最後或最前，這裡維持放最後)
         if walkthrough_content:
             content_buffer.append("\n### Walkthrough\n")
             content_buffer.append(walkthrough_content)
 
         full_raw_content = "\n".join(content_buffer)
 
+        # --- 5. Title Extraction & Filtering ---
         title_match = re.search(r'^#\s+(.+)$', full_raw_content, re.MULTILINE)
         if title_match:
             title = title_match.group(1).strip()
+            # 移除內文中的標題行，避免重複
             full_raw_content = full_raw_content.replace(title_match.group(0), "")
         else:
             title = f"Note-{hash_id[:8]}"
@@ -257,13 +293,17 @@ class BrainHandler(FileSystemEventHandler):
             if timestamp: self.state_manager.update(hash_id, timestamp)
             return False
 
+        # --- 6. Processing (Images, Links) ---
+        # 注意: 這裡傳入 source_path，圖片處理需能應對
         processed_content = self._process_images(full_raw_content, source_path)
         processed_content = self._sanitize_content(processed_content)
         processed_content = self._convert_github_links(processed_content)
 
         creation_time = datetime.now()
-        if walkthrough_path.exists():
-            creation_time = datetime.fromtimestamp(walkthrough_path.stat().st_ctime)
+        # 嘗試使用主要檔案的時間
+        primary_file = best_files_map.get("walkthrough") or best_files_map.get("implementation_plan")
+        if primary_file:
+            creation_time = datetime.fromtimestamp(primary_file.stat().st_ctime)
         
         c_date_str = creation_time.strftime("%Y-%m-%d")
         u_date_str = datetime.now().strftime("%Y-%m-%d")
@@ -377,7 +417,6 @@ if __name__ == "__main__":
     logging.info(f"👀 Watching {SOURCE_ROOT}...")
     try:
         while True: 
-            # 使用變數設定
             time.sleep(CHECK_INTERVAL)
     except KeyboardInterrupt:
         observer.stop()
