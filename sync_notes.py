@@ -23,9 +23,9 @@ FILE_SETTLE_DELAY = 5.0   # 檔案變更後等待秒數
 CHECK_INTERVAL = 1.0      # 背景迴圈檢查頻率
 
 # GitHub Config
-GITHUB_REPO_BASE = "https://github.com/bmw-ece-ntust/openairinterface5g/blob"
-GITHUB_BRANCH = "ming-nfapi-Delay-Management"
-LOCAL_REPO_PATH = "/home/hpe/openairinterface5g/"
+GITHUB_REPO_BASE = "https://github.com/bmw-ece-ntust/ming-nfapi-debugger/blob"
+GITHUB_BRANCH = "oai-debugging-tool-rapp"
+LOCAL_REPO_PATH = "/home/ubuntu/ming/ming-nfapi-debugger"
 
 # --- System Files Location ---
 SCRIPT_DIR = Path(__file__).parent.resolve()
