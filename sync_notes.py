@@ -14,7 +14,7 @@ from watchdog.events import FileSystemEventHandler
 # --- Configuration ---
 HOME_DIR = Path.home()
 SOURCE_ROOT = HOME_DIR / ".gemini/antigravity/brain"
-TARGET_ROOT = HOME_DIR / "ming-note"
+TARGET_ROOT = HOME_DIR / "ming/ming-note"
 DEST_DIR = TARGET_ROOT / "notes/develop"
 DEST_IMG_DIR = DEST_DIR / "src"
 
