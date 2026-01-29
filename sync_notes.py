@@ -19,8 +19,8 @@ DEST_DIR = TARGET_ROOT / "notes/develop"
 DEST_IMG_DIR = DEST_DIR / "src"
 
 # Time & Frequency Settings
-FILE_SETTLE_DELAY = 5.0   # 檔案變更後等待秒數
-CHECK_INTERVAL = 1.0      # 背景迴圈檢查頻率
+FILE_SETTLE_DELAY = 60.0   # 檔案變更後等待秒數
+CHECK_INTERVAL = 29*60.0      # 背景迴圈檢查頻率
 
 # GitHub Config
 GITHUB_REPO_BASE = "https://github.com/bmw-ece-ntust/ming-nfapi-debugger/blob"
